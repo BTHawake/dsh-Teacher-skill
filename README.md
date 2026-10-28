@@ -26,8 +26,10 @@
 
 ```
 D:\wake\HarnessWorkspace\TeacherSkillEditor\讲义\计算机组成原理\index.html
-  → http://127.0.0.1:3080/teacher/TeacherSkillEditor/计算机组成原理/index.html
+  → /teacher/TeacherSkillEditor/计算机组成原理/index.html
 ```
+
+本机调试可以直接访问 `http://127.0.0.1:3080/teacher/...`；**远程请发根相对链接**，不要发 `127.0.0.1` 绝对地址。
 
 ## 安装
 
@@ -92,17 +94,13 @@ python scripts/lesson_html.py build --course "计算机组成原理" \
   --workspace "TeacherSkillEditor"
 ```
 
-聊天里发可直接打开的链接：
+聊天里发可直接打开的**根相对链接**：
 
 ```
 /teacher/TeacherSkillEditor/计算机组成原理/index.html
 ```
 
-如果是完整 URL：
-
-```
-http://127.0.0.1:3080/teacher/TeacherSkillEditor/计算机组成原理/index.html
-```
+`http://127.0.0.1:3080/...` 只对本机有效；远程请在 skill 里用 `--public-base` 生成 `public_url`，不要手拼 `127.0.0.1`。
 
 如果探测不到插件，skill 可以：
 
