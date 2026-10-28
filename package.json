@@ -1,0 +1,54 @@
+{
+  "name": "dsh-teacher-skill",
+  "version": "0.1.0",
+  "description": "DSH host plugin that serves teacher.skill HTML decks and receives answer-card submissions under /teacher on the existing DSH web server.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.1.5-rc.1"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "teacher",
+    "html",
+    "quiz",
+    "course"
+  ],
+  "license": "MIT",
+  "author": "BTHawake",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BTHawake/dsh-Teacher-skill.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BTHawake/dsh-Teacher-skill/issues"
+  },
+  "homepage": "https://github.com/BTHawake/dsh-Teacher-skill#readme",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check index.js && node --test"
+  }
+}

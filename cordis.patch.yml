@@ -1,0 +1,19 @@
+# DSH bundle patch for dsh-teacher-skill.
+#
+# Install (from this directory):
+#   dsh plugin --profile web add link:<this-directory>
+# Then restart `dsh web`.
+#
+# `workspaceRoot` is the parent of your course workspaces. A course at
+#   <workspaceRoot>/<workspace>/讲义/<course>/index.html
+# is served at
+#   /teacher/<workspace>/<course>/index.html
+#
+# Set `token` when the DSH web server is reachable by untrusted clients.
+- insert:
+    - id: teacher-course
+      name: dsh-teacher-skill
+      config:
+        enabled: true
+        workspaceRoot: 'D:\wake\HarnessWorkspace'
+        token: ''
