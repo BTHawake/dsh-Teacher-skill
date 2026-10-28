@@ -1,6 +1,6 @@
 {
   "name": "dsh-teacher-skill",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH host plugin that serves teacher.skill HTML decks and receives answer-card submissions under /teacher on the existing DSH web server.",
   "type": "module",
   "main": "index.js",

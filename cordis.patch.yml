@@ -4,8 +4,11 @@
 #   dsh plugin --profile web add link:<this-directory>
 # Then restart `dsh web`.
 #
-# `workspaceRoot` is the parent of your course workspaces. A course at
-#   <workspaceRoot>/<workspace>/讲义/<course>/index.html
+# `workspaceRoot` is only a legacy/single-root fallback. Prefer the
+# AI-managed registry: ~/.dsh/teacher-workspaces.json
+#   { "workspaces": { "操作系统": "D:\\...\\操作系统" } }
+# A course at
+#   <workspaceRoot>/讲义/<course>/index.html
 # is served at
 #   /teacher/<workspace>/<course>/index.html
 #
@@ -15,5 +18,6 @@
       name: dsh-teacher-skill
       config:
         enabled: true
-        workspaceRoot: 'D:\wake\HarnessWorkspace'
+        workspaceRoot: ''
+        registry: ''
         token: ''

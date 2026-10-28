@@ -12,7 +12,7 @@ import { timingSafeEqual } from 'node:crypto';
 
 export const name = 'teacher-course';
 export const inject = ['webServer'];
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 
 export const PREFIX = '/teacher';
 export const ROUTES = Object.freeze({
@@ -48,22 +48,56 @@ const MIME = Object.freeze({
 export function defaultWorkspaceRoot() {
   const candidates = [
     process.env.DSH_TEACHER_WORKSPACE_ROOT,
-    'D:\\wake\\HarnessWorkspace',
     join(homedir(), 'HarnessWorkspace'),
-    process.cwd(),
   ];
   for (const candidate of candidates) {
     if (typeof candidate !== 'string' || candidate.trim() === '') continue;
     try { if (existsSync(candidate)) return resolve(candidate); } catch {}
   }
-  return resolve(process.cwd());
+  return '';
+}
+
+export function dshHomePath() {
+  return process.env.DSH_HOME ? resolve(process.env.DSH_HOME) : join(homedir(), '.dsh');
+}
+
+export function registryPath(registry = '') {
+  return registry ? resolve(registry) : join(dshHomePath(), 'teacher-workspaces.json');
+}
+
+/** Registry: { workspaces: { "操作系统": "D:\\...\\操作系统" } } */
+export function loadWorkspaceRegistry(registry = '') {
+  const file = registryPath(registry);
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    const workspaces = parsed && typeof parsed === 'object' && parsed.workspaces;
+    if (workspaces && typeof workspaces === 'object' && !Array.isArray(workspaces)) {
+      return { file, workspaces };
+    }
+  } catch {}
+  return { file, workspaces: {} };
+}
+
+/** Resolve the exact workspace root for a URL/payload workspace name. */
+export function resolveWorkspaceRoot(config, workspace) {
+  if (!config || !safeSegment(workspace)) return '';
+  const registry = loadWorkspaceRegistry(config.registry || '');
+  const registered = registry.workspaces[workspace];
+  if (typeof registered === 'string' && registered.trim()) return resolve(registered);
+  // Legacy mode: workspaceRoot is the parent of <workspace>/讲义/<course>.
+  if (config.workspaceRoot) return resolve(config.workspaceRoot, workspace);
+  return '';
 }
 
 export function normalizeConfig(raw = {}) {
   const config = raw && typeof raw === 'object' ? raw : {};
+  const configuredRoot = String(
+    config.workspaceRoot || process.env.DSH_TEACHER_WORKSPACE_ROOT || ''
+  ).trim();
   return {
     enabled: config.enabled !== false,
-    workspaceRoot: resolve(String(config.workspaceRoot || process.env.DSH_TEACHER_WORKSPACE_ROOT || defaultWorkspaceRoot())),
+    workspaceRoot: configuredRoot ? resolve(configuredRoot) : '',
+    registry: typeof config.registry === 'string' ? config.registry : '',
     token: typeof config.token === 'string' ? config.token : '',
     maxBodyBytes: Number.isInteger(config.maxBodyBytes) ? Math.min(Math.max(config.maxBodyBytes, 1024), 8 * 1024 * 1024) : MAX_BODY_BYTES,
   };
@@ -88,16 +122,16 @@ function safeRelativePath(value) {
   return true;
 }
 
-export function resolveCourseRoot(workspaceRoot, workspace, course) {
-  if (!safeSegment(workspace) || !safeSegment(course)) return null;
-  const root = resolve(workspaceRoot, workspace, '讲义', course);
-  const expected = resolve(workspaceRoot, workspace, '讲义');
+export function resolveCourseRoot(workspaceRoot, course) {
+  if (!workspaceRoot || !safeSegment(course)) return null;
+  const root = resolve(workspaceRoot, '讲义', course);
+  const expected = resolve(workspaceRoot, '讲义');
   if (root !== expected && !root.startsWith(`${expected}${sep}`)) return null;
   return root;
 }
 
-export function resolveCourseFile(workspaceRoot, workspace, course, relativePath) {
-  const courseRoot = resolveCourseRoot(workspaceRoot, workspace, course);
+export function resolveCourseFile(workspaceRoot, course, relativePath) {
+  const courseRoot = resolveCourseRoot(workspaceRoot, course);
   if (!courseRoot || !safeRelativePath(relativePath)) return null;
   const file = resolve(courseRoot, ...relativePath.split(/[\\/]+/));
   if (file !== courseRoot && !file.startsWith(`${courseRoot}${sep}`)) return null;
@@ -193,7 +227,7 @@ function timestampName(date = new Date()) {
 }
 
 /** Write the latest submission plus a timestamped copy. Exported for tests. */
-export function writeAnswers(workspaceRoot, payload, now = new Date()) {
+export function writeAnswers(config, payload, now = new Date()) {
   if (!payload || typeof payload !== 'object') throw new Error('invalid payload');
   const workspace = typeof payload.workspace === 'string' ? payload.workspace.trim() : '';
   const course = typeof payload.course === 'string' ? payload.course.trim() : '';
@@ -203,7 +237,9 @@ export function writeAnswers(workspaceRoot, payload, now = new Date()) {
   }
   if (!payload.answers.every(validAnswer)) throw new Error('invalid answer item');
 
-  const courseRoot = resolveCourseRoot(workspaceRoot, workspace, course);
+  const workspaceRoot = resolveWorkspaceRoot(config, workspace);
+  if (!workspaceRoot) throw new Error('workspace is not registered');
+  const courseRoot = resolveCourseRoot(workspaceRoot, course);
   if (!courseRoot) throw new Error('course path escapes workspace root');
   const answersDir = join(courseRoot, 'answers');
   mkdirSync(answersDir, { recursive: true });
@@ -226,8 +262,10 @@ export function writeAnswers(workspaceRoot, payload, now = new Date()) {
   return { file: 'answers/latest.json', count: record.answers.length };
 }
 
-function readLatest(workspaceRoot, workspace, course) {
-  const courseRoot = resolveCourseRoot(workspaceRoot, workspace, course);
+function readLatest(config, workspace, course) {
+  const workspaceRoot = resolveWorkspaceRoot(config, workspace);
+  if (!workspaceRoot) return null;
+  const courseRoot = resolveCourseRoot(workspaceRoot, course);
   if (!courseRoot) return null;
   const file = join(courseRoot, 'answers', 'latest.json');
   if (!existsSync(file)) return null;
@@ -259,7 +297,9 @@ function staticHandler(cfg) {
       return sendText(res, 404, 'not found');
     }
     if (rest.split('/').includes('answers')) return sendText(res, 404, 'not found');
-    const file = resolveCourseFile(cfg.workspaceRoot, workspace, course, rest);
+    const workspaceRoot = resolveWorkspaceRoot(cfg, workspace);
+    if (!workspaceRoot) return sendText(res, 503, 'workspace is not registered');
+    const file = resolveCourseFile(workspaceRoot, course, rest);
     if (!file || !existsSync(file)) return sendText(res, 404, 'not found');
     let info;
     try { info = statSync(file); } catch { return sendText(res, 404, 'not found'); }
@@ -286,12 +326,17 @@ export function makeRoutes(rawConfig) {
       path: ROUTES.health,
       handler: async (req, res) => {
         if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
+        const registry = loadWorkspaceRegistry(cfg.registry);
+        const workspaces = Object.keys(registry.workspaces);
         sendJson(res, 200, {
           ok: true,
           plugin: 'dsh-teacher-skill',
           version: VERSION,
           authRequired: Boolean(cfg.token),
           prefix: PREFIX,
+          registry: registry.file,
+          workspaces,
+          configured: workspaces.length > 0 || Boolean(cfg.workspaceRoot),
         });
       },
     },
@@ -305,7 +350,7 @@ export function makeRoutes(rawConfig) {
         if (!safeSegment(workspace) || !safeSegment(course)) {
           return sendJson(res, 400, { ok: false, error: 'workspace and course are required' });
         }
-        const record = readLatest(cfg.workspaceRoot, workspace, course);
+        const record = readLatest(cfg, workspace, course);
         if (!record) return sendJson(res, 404, { ok: false, error: 'no submission' });
         sendJson(res, 200, { ok: true, record });
       },
@@ -321,7 +366,7 @@ export function makeRoutes(rawConfig) {
         const body = await readBody(req, cfg.maxBodyBytes);
         if (body === null) return sendJson(res, 400, { ok: false, error: 'invalid or oversized JSON body' });
         try {
-          const saved = writeAnswers(cfg.workspaceRoot, body);
+          const saved = writeAnswers(cfg, body);
           return sendJson(res, 200, { ok: true, saved: true, ...saved });
         } catch (error) {
           return sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : 'invalid payload' });

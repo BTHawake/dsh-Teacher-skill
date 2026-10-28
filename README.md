@@ -18,15 +18,21 @@
 静态文件的映射：
 
 ```
-<workspaceRoot>/<workspace>/讲义/<course>/index.html
+<registered workspace root>/讲义/<course>/index.html
   → /teacher/<workspace>/<course>/index.html
 ```
 
-例如：
+例如注册：
+
+```json
+{"workspaces":{"操作系统":"D:\\wake\\HarnessWorkspace\\操作系统"}}
+```
+
+则：
 
 ```
-D:\wake\HarnessWorkspace\TeacherSkillEditor\讲义\计算机组成原理\index.html
-  → /teacher/TeacherSkillEditor/计算机组成原理/index.html
+D:\wake\HarnessWorkspace\操作系统\讲义\操作系统\index.html
+  → /teacher/操作系统/操作系统/index.html
 ```
 
 本机调试可以直接访问 `http://127.0.0.1:3080/teacher/...`；**远程请发根相对链接**，不要发 `127.0.0.1` 绝对地址。
@@ -41,40 +47,62 @@ cd dsh-Teacher-skill
 dsh plugin --profile web add "link:$PWD"
 ```
 
-或者不用 clone，直接把本目录加入 profile：
+或者不用 clone，直接把本目录加入 profile（换成你的实际路径）：
 
 ```powershell
-dsh plugin --profile web add 'link:D:\wake\HarnessWorkspace\TeacherSkillEditor\dsh-Teacher-skill'
+dsh plugin --profile web add 'link:<plugin-dir>'
 ```
 
 添加后**重启 `dsh web`**，刷新 DSH 页面。验证：
 
 ```bash
 curl http://127.0.0.1:3080/teacher/api/health
-# {"ok":true,"plugin":"dsh-teacher-skill","version":"0.1.0",...}
+# {"ok":true,"plugin":"dsh-teacher-skill","version":"0.2.0",...}
 ```
 
 > `dsh plugin` 的 profile 操作可能随 DSH 版本变化，以当前 `dsh plugin --help` 为准。
 
 ## 配置
 
-`cordis.patch.yml` 里有默认配置；也可以在 profile 的插件配置里覆盖：
+`cordis.patch.yml` 默认不写死任何机器路径：
 
 ```yaml
 - id: teacher-course
   name: dsh-teacher-skill
   config:
     enabled: true
-    workspaceRoot: 'D:\wake\HarnessWorkspace'
+    workspaceRoot: ''   # 可选，仅旧版单根模式
+    registry: ''        # 默认 ~/.dsh/teacher-workspaces.json
     token: ''
 ```
 
 | 字段 | 默认 | 说明 |
 |------|------|------|
-| `workspaceRoot` | `D:\wake\HarnessWorkspace` / `~/HarnessWorkspace` / cwd | 课程工作区的父目录 |
-| `token` | 空 | 非空时，`POST /teacher/api/answers` 和读取 latest 需要 `x-teacher-token` |
+| `workspaceRoot` | 空 | 旧版单根父目录；新安装推荐留空，用注册表 |
+| `registry` | `~/.dsh/teacher-workspaces.json` | AI 注册 workspace 根目录的文件 |
+| `token` | 空 | 非空时，答题 API 需要 `x-teacher-token` |
 | `enabled` | `true` | 关闭插件路由 |
 | `maxBodyBytes` | 1 MiB | 答题 JSON 上限 |
+
+### AI 注册 workspace
+
+教师 skill 的 AI 应先 `pwd` 判断当前工作区，然后注册：
+
+```bash
+python scripts/dsh_register.py --workspace-root "$PWD" --json
+```
+
+写入：
+
+```json
+{
+  "workspaces": {
+    "操作系统": "D:\\wake\\HarnessWorkspace\\操作系统"
+  }
+}
+```
+
+插件只服务注册过的根目录；没注册的 `/teacher/<workspace>/...` 返回 503，不会拿 cwd 乱猜。
 
 ## 和 teacher.skill 配合
 
@@ -111,7 +139,7 @@ python scripts/lesson_html.py build --course "计算机组成原理" \
 ## 安全
 
 - 默认没有登录页，依赖 **DSH 自身的访问控制/隧道**。如果 DSH 暴露在公网，务必设置 `token`，并在反向代理层加认证。
-- 静态路由只允许 `<workspaceRoot>/<workspace>/讲义/<course>/` 下的文件；`answers/` 目录不通过静态路由暴露。
+- 静态路由只允许 `<注册的 workspace root>/讲义/<course>/` 下的文件；`answers/` 目录不通过静态路由暴露。
 - `token` 非空时，答题卡通过 `x-teacher-token` 发送；页面本身仍受 DSH 访问控制。
 - 不要在公开网络上无鉴权地暴露 `/teacher/api/answers`。
 

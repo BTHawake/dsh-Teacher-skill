@@ -10,6 +10,7 @@ import {
   makeRoutes,
   normalizeConfig,
   resolveCourseFile,
+  resolveWorkspaceRoot,
   safeSegment,
   writeAnswers,
   ROUTES,
@@ -32,6 +33,14 @@ test('normalizeConfig resolves a writable root', () => {
   assert.equal(cfg.enabled, true);
 });
 
+test('resolveWorkspaceRoot prefers the AI-managed registry', () => {
+  const { root } = fixture();
+  const registry = join(root, 'teacher-workspaces.json');
+  writeFileSync(registry, JSON.stringify({ workspaces: { ws: join(root, 'ws') } }), 'utf8');
+  assert.equal(resolveWorkspaceRoot({ registry, workspaceRoot: '' }, 'ws'), join(root, 'ws'));
+  assert.equal(resolveWorkspaceRoot({ registry, workspaceRoot: '' }, 'missing'), '');
+});
+
 test('safeSegment rejects traversal and separators', () => {
   assert.equal(safeSegment('计算机组成原理'), true);
   assert.equal(safeSegment('..'), false);
@@ -43,14 +52,15 @@ test('safeSegment rejects traversal and separators', () => {
 
 test('resolveCourseFile stays inside the course', () => {
   const { root } = fixture();
-  assert.ok(resolveCourseFile(root, 'ws', '课程', 'unit-01.html'));
-  assert.equal(resolveCourseFile(root, 'ws', '课程', '../secret.txt'), null);
-  assert.equal(resolveCourseFile(root, '..', '课程', 'index.html'), null);
+  const workspace = join(root, 'ws');
+  assert.ok(resolveCourseFile(workspace, '课程', 'unit-01.html'));
+  assert.equal(resolveCourseFile(workspace, '课程', '../secret.txt'), null);
+  assert.equal(resolveCourseFile(workspace, '../课程', 'index.html'), null);
 });
 
 test('writeAnswers writes latest.json and a timestamped snapshot', () => {
   const { root, course } = fixture();
-  const result = writeAnswers(root, {
+  const result = writeAnswers({ workspaceRoot: root }, {
     workspace: 'ws',
     course: '课程',
     unit: '1',
@@ -102,6 +112,51 @@ test('apply registers routes through ctx.webServer', () => {
     '/teacher',
   ]);
   disposeRoutes();
+});
+
+test('registry mode serves only registered workspace roots', async () => {
+  const { root } = fixture();
+  const registry = join(root, 'teacher-workspaces.json');
+  writeFileSync(registry, JSON.stringify({ workspaces: { ws: join(root, 'ws') } }), 'utf8');
+  const prefix = makeRoutes({ registry }).find(route => route.kind === 'prefix');
+  const server = createServer((req, res) => prefix.handler(req, res));
+  await new Promise(resolvePromise => server.listen(0, '127.0.0.1', resolvePromise));
+  const { port } = server.address();
+  try {
+    const ok = await fetch(`http://127.0.0.1:${port}/teacher/ws/课程/index.html`);
+    assert.equal(ok.status, 200);
+    const missing = await fetch(`http://127.0.0.1:${port}/teacher/missing/课程/index.html`);
+    assert.equal(missing.status, 503);
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
+});
+
+test('registry mode writes answers for a registered workspace', async () => {
+  const { root, course } = fixture();
+  const registry = join(root, 'teacher-workspaces.json');
+  writeFileSync(registry, JSON.stringify({ workspaces: { ws: join(root, 'ws') } }), 'utf8');
+  const routes = makeRoutes({ registry });
+  const server = createServer((req, res) => {
+    const pathname = new URL(req.url, 'http://x').pathname;
+    const exact = routes.find(route => route.kind === 'exact' && route.path === pathname);
+    const prefix = routes.find(route => route.kind === 'prefix' && pathname.startsWith(route.path));
+    (exact || prefix).handler(req, res);
+  });
+  await new Promise(resolvePromise => server.listen(0, '127.0.0.1', resolvePromise));
+  const { port } = server.address();
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/teacher/api/answers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ workspace: 'ws', course: '课程', answers: [{ id: 'Q1', value: 'B' }] }),
+    });
+    assert.equal(response.status, 200);
+    const record = JSON.parse(readFileSync(join(course, 'answers', 'latest.json'), 'utf8'));
+    assert.equal(record.answers[0].value, 'B');
+  } finally {
+    await new Promise(resolvePromise => server.close(resolvePromise));
+  }
 });
 
 test('static handler serves course HTML and rejects traversal', async () => {
